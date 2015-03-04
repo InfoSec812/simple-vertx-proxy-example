@@ -4,6 +4,7 @@ import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
+import io.vertx.core.http.HttpMethod;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.impl.LoggerFactory;
 import io.vertx.core.streams.Pump;
@@ -31,13 +32,16 @@ public class Main extends AbstractVerticle {
             ctx.request().pause();
             ctx.addBodyEndHandler(end -> {
                 ctx.response().end();
-                ctx.response().close();
             });
             LOG.error("Sending proxied request.");
             final HttpClientRequest req = client.request(ctx.request().method(), 80, "www.reddit.com", ctx.request().uri());
             req.headers().clear().addAll(ctx.request().headers().remove("Host"));
             req.putHeader("Host", "www.reddit.com");
-            req.setChunked(true);
+            if (ctx.request().method().equals(HttpMethod.POST) || ctx.request().method().equals(HttpMethod.PUT)) {
+                if (ctx.request().headers().get("Content-Length")==null) {
+                    req.setChunked(true);
+                }
+            }
             req.endHandler(end -> {
                 req.end();
                 LOG.error("Proxied request ended");
@@ -46,9 +50,11 @@ public class Main extends AbstractVerticle {
                 pResponse.pause();
                 LOG.error("Getting response from target");
                 ctx.response().headers().clear().addAll(pResponse.headers());
+                if (pResponse.headers().get("Content-Length")==null) {
+                    ctx.response().setChunked(true);
+                }
                 ctx.response().setStatusCode(pResponse.statusCode());
                 ctx.response().setStatusMessage(pResponse.statusMessage());
-                ctx.response().setChunked(true);
                 Pump targetToProxy = Pump.pump(pResponse, ctx.response());
                 targetToProxy.start();
                 pResponse.resume();
